@@ -40,7 +40,8 @@ The API will start on **http://localhost:5002**
 - **API Root**: http://localhost:5002/
 - **Swagger UI**: http://localhost:5002/swagger
 - **Health Check**: http://localhost:5002/health
-- **Debug Info**: http://localhost:5002/debug (⚠️ Exposes secrets!)
+
+> ⚠️ A `/debug` endpoint is included only for workshop demonstration and must be disabled in any production deployment.
 
 ## Project Structure
 
@@ -58,7 +59,7 @@ samples/typescript/
 │       └── admin.ts        # Admin functions (code injection)
 ├── package.json            # Dependencies and scripts
 ├── tsconfig.json           # TypeScript configuration
-├── .env                    # Environment config (with secrets!)
+├── .env                    # Environment config (sample values only; do not store real secrets here)
 ├── uploads/                # File upload directory
 └── README.md               # This file
 ```
@@ -188,14 +189,14 @@ curl -X POST http://localhost:5002/api/files/fetch-url \
 
 ## Pre-seeded Data
 
-The application automatically seeds test data:
+The application automatically seeds placeholder test data. In real deployments, use unique, non-production credentials and do not store real payment data.
 
 ### Users
 | Username | Password | Role | Credit Card |
 |----------|----------|------|-------------|
-| admin | admin123 | admin | 4111-1111-1111-1111 |
-| john_doe | password123 | user | 4222-2222-2222-2222 |
-| jane_smith | jane2024 | user | - |
+| admin | <redacted> | admin | <redacted> |
+| john_doe | <redacted> | user | <redacted> |
+| jane_smith | <redacted> | user | <redacted> |
 
 ### Products
 | Name | Price | Stock |
