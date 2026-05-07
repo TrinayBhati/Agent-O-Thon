@@ -4,14 +4,10 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { queryOne, queryAll, runQuery, getLastInsertRowId } from '../database';
+import { queryOne, queryAll, runQuery, hashPassword } from '../database';
 import { User } from '../types';
-import CryptoJS from 'crypto-js';
 
 const router = Router();
-
-// ⚠️ Issue: Hardcoded credentials
-const ADMIN_BACKDOOR = 'backdoor-admin-2024';
 
 /**
  * @swagger
@@ -22,15 +18,13 @@ const ADMIN_BACKDOOR = 'backdoor-admin-2024';
  */
 router.post('/login', (req: Request, res: Response) => {
     const { username, password } = req.body;
-    
-    // ⚠️ Issue: SQL Injection - string concatenation
-    const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;
+    const hashedPassword = hashPassword(password);
     
     try {
-        const user = queryOne(query) as User | undefined;
+        const user = queryOne('SELECT * FROM users WHERE username = ? AND password = ?', [username, hashedPassword]) as User | undefined;
         
         if (user) {
-            console.log(`User ${username} logged in with password: ${password}`);
+            console.log(`User ${username} logged in`);
             return res.json({
                 message: 'Login successful',
                 user_id: user.id,
@@ -40,13 +34,13 @@ router.post('/login', (req: Request, res: Response) => {
             });
         }
         
-        const userExists = queryOne(`SELECT * FROM users WHERE username = '${username}'`);
+        const userExists = queryOne('SELECT * FROM users WHERE username = ?', [username]);
         if (userExists) {
             return res.status(401).json({ error: 'Invalid password' });
         }
         return res.status(404).json({ error: 'User not found' });
     } catch (error: any) {
-        return res.status(500).json({ error: error.message, query });
+        return res.status(500).json({ error: error.message });
     }
 });
 
@@ -59,15 +53,17 @@ router.post('/login', (req: Request, res: Response) => {
  */
 router.post('/register', (req: Request, res: Response) => {
     const { username, email, password, role, credit_card, ssn } = req.body;
+    const hashedPassword = hashPassword(password);
     
     try {
-        // ⚠️ Issue: SQL Injection and storing plain text password
-        runQuery(`INSERT INTO users (username, email, password, role, credit_card, ssn) 
-                  VALUES ('${username}', '${email}', '${password}', '${role || 'user'}', '${credit_card || ''}', '${ssn || ''}')`);
+        runQuery(
+            'INSERT INTO users (username, email, password, role, credit_card, ssn) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, email, hashedPassword, role || 'user', credit_card || '', ssn || '']
+        );
         
         return res.status(201).json({
             message: 'User created successfully',
-            user: { username, email, password, role: role || 'user' }
+            user: { username, email, role: role || 'user' }
         });
     } catch (error: any) {
         return res.status(500).json({ error: error.message });
@@ -82,10 +78,13 @@ router.post('/register', (req: Request, res: Response) => {
  *     summary: Get user by ID
  */
 router.get('/:id', (req: Request, res: Response) => {
-    const { id } = req.params;
-    
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
     // ⚠️ Issue: IDOR - no authorization
-    const user = queryOne(`SELECT * FROM users WHERE id = ${id}`) as User | undefined;
+    const user = queryOne('SELECT * FROM users WHERE id = ?', [id]) as User | undefined;
     
     if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -102,16 +101,15 @@ router.get('/:id', (req: Request, res: Response) => {
  *     summary: Search users
  */
 router.get('/search', (req: Request, res: Response) => {
-    const { q } = req.query;
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
     
-    // ⚠️ Issue: SQL Injection
-    const query = `SELECT * FROM users WHERE username LIKE '%${q}%' OR email LIKE '%${q}%'`;
+    const query = 'SELECT * FROM users WHERE username LIKE ? OR email LIKE ?';
     
     try {
-        const users = queryAll(query) as User[];
+        const users = queryAll(query, [`%${q}%`, `%${q}%`]) as User[];
         return res.json(users);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message, query });
+        return res.status(500).json({ error: error.message });
     }
 });
 
@@ -124,14 +122,12 @@ router.get('/search', (req: Request, res: Response) => {
  */
 router.post('/hash-password', (req: Request, res: Response) => {
     const { password } = req.body;
-    
-    // ⚠️ Issue: Using MD5 (cryptographically broken)
-    const hashed = CryptoJS.MD5(password).toString();
+    const hashed = hashPassword(password);
     
     return res.json({
         original: password,
         hashed,
-        algorithm: 'MD5'
+        algorithm: 'SHA-256'
     });
 });
 
@@ -144,7 +140,7 @@ router.post('/hash-password', (req: Request, res: Response) => {
  */
 router.get('/', (req: Request, res: Response) => {
     // ⚠️ Issue: No pagination, exposes passwords
-    const users = queryAll('SELECT * FROM users') as User[];
+    const users = queryAll('SELECT id, username, email, role, credit_card, created_at, is_active FROM users') as User[];
     return res.json(users);
 });
 

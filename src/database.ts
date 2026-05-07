@@ -6,6 +6,7 @@
  */
 
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -109,13 +110,13 @@ export function seedDatabase(): void {
     const count = result.length > 0 ? result[0].values[0][0] as number : 0;
     
     if (count === 0) {
-        // ⚠️ Issue: Weak/predictable passwords stored in plain text
+        // Store seeded users with secure password hashes
         db.run(`INSERT INTO users (username, email, password, role, credit_card, ssn) 
-                VALUES ('admin', 'admin@secureshop.com', 'admin123', 'admin', '4111-1111-1111-1111', '123-45-6789')`);
+                VALUES ('admin', 'admin@secureshop.com', '${hashPassword('admin123')}', 'admin', '4111-1111-1111-1111', '123-45-6789')`);
         db.run(`INSERT INTO users (username, email, password, role, credit_card) 
-                VALUES ('john_doe', 'john@example.com', 'password123', 'user', '4222-2222-2222-2222')`);
+                VALUES ('john_doe', 'john@example.com', '${hashPassword('password123')}', 'user', '4222-2222-2222-2222')`);
         db.run(`INSERT INTO users (username, email, password, role) 
-                VALUES ('jane_smith', 'jane@example.com', 'jane2024', 'user')`);
+                VALUES ('jane_smith', 'jane@example.com', '${hashPassword('jane2024')}', 'user')`);
 
         db.run(`INSERT INTO products (name, description, price, stock, category) 
                 VALUES ('Laptop Pro X1', 'High-performance laptop', 1299.99, 50, 'Electronics')`);
@@ -134,51 +135,54 @@ export function getLastInsertRowId(): number {
     return result.length > 0 ? result[0].values[0][0] as number : 0;
 }
 
-export function queryOne(sql: string): any {
+export function hashPassword(password: string): string {
+    return createHash('sha256')
+        .update(password)
+        .digest('hex');
+}
+
+function prepareStatement(sql: string, params: any[] = []) {
+    const stmt = db.prepare(sql);
+    if (params.length) {
+        stmt.bind(params);
+    }
+    return stmt;
+}
+
+export function queryOne(sql: string, params: any[] = []): any {
+    const stmt = prepareStatement(sql, params);
     try {
-        const result = db.exec(sql);
-        if (result.length === 0 || result[0].values.length === 0) {
+        if (!stmt.step()) {
             return undefined;
         }
-        const columns = result[0].columns;
-        const values = result[0].values[0];
-        const row: any = {};
-        columns.forEach((col, i) => {
-            row[col] = values[i];
-        });
-        return row;
-    } catch (error) {
-        throw error;
+        return stmt.getAsObject();
+    } finally {
+        stmt.free();
     }
 }
 
-export function queryAll(sql: string): any[] {
+export function queryAll(sql: string, params: any[] = []): any[] {
+    const stmt = prepareStatement(sql, params);
     try {
-        const result = db.exec(sql);
-        if (result.length === 0) {
-            return [];
+        const rows: any[] = [];
+        while (stmt.step()) {
+            rows.push(stmt.getAsObject());
         }
-        const columns = result[0].columns;
-        return result[0].values.map(values => {
-            const row: any = {};
-            columns.forEach((col, i) => {
-                row[col] = values[i];
-            });
-            return row;
-        });
-    } catch (error) {
-        throw error;
+        return rows;
+    } finally {
+        stmt.free();
     }
 }
 
-export function runQuery(sql: string): any {
+export function runQuery(sql: string, params: any[] = []): any {
+    const stmt = db.prepare(sql);
     try {
-        db.run(sql);
+        stmt.run(params);
         saveDatabase();
         return { changes: db.getRowsModified(), lastInsertRowid: getLastInsertRowId() };
-    } catch (error) {
-        throw error;
+    } finally {
+        stmt.free();
     }
 }
 
-export default { initDatabase, getDb, seedDatabase, queryOne, queryAll, runQuery, saveDatabase };
+export default { initDatabase, getDb, seedDatabase, queryOne, queryAll, runQuery, saveDatabase, hashPassword };

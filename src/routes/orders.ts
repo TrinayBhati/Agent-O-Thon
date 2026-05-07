@@ -28,7 +28,7 @@ const DISCOUNT_CODES: Record<string, number> = {
 router.post('/', (req: Request, res: Response) => {
     const { user_id, product_id, quantity = 1, total_price, status, card_number } = req.body;
     
-    const product = queryOne(`SELECT * FROM products WHERE id = ${product_id}`) as Product | undefined;
+    const product = queryOne('SELECT * FROM products WHERE id = ?', [product_id]) as Product | undefined;
     
     if (!product) {
         return res.status(404).json({ error: 'Product not found' });
@@ -39,8 +39,10 @@ router.post('/', (req: Request, res: Response) => {
     const finalPrice = total_price !== undefined ? total_price : calculatedPrice;
     
     try {
-        runQuery(`INSERT INTO orders (user_id, product_id, quantity, total_price, status, card_number)
-                  VALUES (${user_id}, ${product_id}, ${quantity}, ${finalPrice}, '${status || 'pending'}', '${card_number || ''}')`);
+        runQuery(
+            'INSERT INTO orders (user_id, product_id, quantity, total_price, status, card_number) VALUES (?, ?, ?, ?, ?, ?)',
+            [user_id, product_id, quantity, finalPrice, status || 'pending', card_number || '']
+        );
         
         console.log(`Order created with card: ${card_number}`);
         
@@ -60,10 +62,13 @@ router.post('/', (req: Request, res: Response) => {
  *     summary: Get order by ID
  */
 router.get('/:id', (req: Request, res: Response) => {
-    const { id } = req.params;
-    
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid order ID' });
+    }
+
     // ⚠️ Issue: IDOR
-    const order = queryOne(`SELECT * FROM orders WHERE id = ${id}`) as Order | undefined;
+    const order = queryOne('SELECT * FROM orders WHERE id = ?', [id]) as Order | undefined;
     
     if (!order) {
         return res.status(404).json({ error: 'Order not found' });
@@ -82,7 +87,7 @@ router.get('/:id', (req: Request, res: Response) => {
 router.post('/apply-discount', (req: Request, res: Response) => {
     const { order_id, discount_code } = req.body;
     
-    const order = queryOne(`SELECT * FROM orders WHERE id = ${order_id}`) as Order | undefined;
+    const order = queryOne('SELECT * FROM orders WHERE id = ?', [order_id]) as Order | undefined;
     
     if (!order) {
         return res.status(404).json({ error: 'Order not found' });
@@ -92,7 +97,7 @@ router.post('/apply-discount', (req: Request, res: Response) => {
         const discount = DISCOUNT_CODES[discount_code];
         const newTotal = order.total_price - (order.total_price * discount);
         
-        runQuery(`UPDATE orders SET total_price = ${newTotal} WHERE id = ${order_id}`);
+        runQuery('UPDATE orders SET total_price = ? WHERE id = ?', [newTotal, order_id]);
         
         return res.json({
             message: 'Discount applied',
@@ -125,16 +130,18 @@ router.get('/', (req: Request, res: Response) => {
  *     summary: Get orders by user ID
  */
 router.get('/user/:userId', (req: Request, res: Response) => {
-    const { userId } = req.params;
-    
-    // ⚠️ Issue: SQL Injection
-    const query = `SELECT * FROM orders WHERE user_id = ${userId}`;
+    const userId = Number(req.params.userId);
+    if (Number.isNaN(userId)) {
+        return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const query = 'SELECT * FROM orders WHERE user_id = ?';
     
     try {
-        const orders = queryAll(query) as Order[];
+        const orders = queryAll(query, [userId]) as Order[];
         return res.json(orders);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message, query });
+        return res.status(500).json({ error: error.message });
     }
 });
 

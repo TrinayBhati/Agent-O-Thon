@@ -30,9 +30,12 @@ router.get('/', (req: Request, res: Response) => {
  *     summary: Get product by ID
  */
 router.get('/:id', (req: Request, res: Response) => {
-    const { id } = req.params;
-    
-    const product = queryOne(`SELECT * FROM products WHERE id = ${id}`) as Product | undefined;
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid product ID' });
+    }
+
+    const product = queryOne('SELECT * FROM products WHERE id = ?', [id]) as Product | undefined;
     
     if (!product) {
         return res.status(404).json({ error: 'Product not found' });
@@ -50,13 +53,16 @@ router.get('/:id', (req: Request, res: Response) => {
  */
 router.post('/', (req: Request, res: Response) => {
     const { name, description, price, stock, image_url, category } = req.body;
+    const priceValue = Number(price);
+    const stockValue = Number(stock) || 0;
     
-    // ⚠️ Issue: No authentication, SQL injection
     try {
-        runQuery(`INSERT INTO products (name, description, price, stock, image_url, category)
-                  VALUES ('${name}', '${description || ''}', ${price}, ${stock || 0}, '${image_url || ''}', '${category || ''}')`);
+        runQuery(
+            'INSERT INTO products (name, description, price, stock, image_url, category) VALUES (?, ?, ?, ?, ?, ?)',
+            [name, description || '', priceValue, stockValue, image_url || '', category || '']
+        );
         
-        return res.status(201).json({ name, description, price, stock: stock || 0, category });
+        return res.status(201).json({ name, description, price: priceValue, stock: stockValue, category });
     } catch (error: any) {
         return res.status(500).json({ error: error.message });
     }
@@ -70,18 +76,21 @@ router.post('/', (req: Request, res: Response) => {
  *     summary: Update product stock
  */
 router.post('/:id/update-stock', (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { quantity } = req.body;
+    const id = Number(req.params.id);
+    const quantity = Number(req.body.quantity) || 0;
+    if (Number.isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid product ID' });
+    }
     
     // ⚠️ Issue: Race condition, no auth
-    const product = queryOne(`SELECT * FROM products WHERE id = ${id}`) as Product | undefined;
+    const product = queryOne('SELECT * FROM products WHERE id = ?', [id]) as Product | undefined;
     
     if (!product) {
         return res.status(404).json({ error: 'Product not found' });
     }
     
-    const newStock = product.stock + (quantity || 0);
-    runQuery(`UPDATE products SET stock = ${newStock} WHERE id = ${id}`);
+    const newStock = product.stock + quantity;
+    runQuery('UPDATE products SET stock = ? WHERE id = ?', [newStock, id]);
     
     return res.json({ ...product, stock: newStock });
 });
@@ -94,16 +103,15 @@ router.post('/:id/update-stock', (req: Request, res: Response) => {
  *     summary: Search products
  */
 router.get('/search', (req: Request, res: Response) => {
-    const { q } = req.query;
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
     
-    // ⚠️ Issue: SQL Injection
-    const query = `SELECT * FROM products WHERE name LIKE '%${q}%' OR description LIKE '%${q}%'`;
+    const query = 'SELECT * FROM products WHERE name LIKE ? OR description LIKE ?';
     
     try {
-        const products = queryAll(query) as Product[];
+        const products = queryAll(query, [`%${q}%`, `%${q}%`]) as Product[];
         return res.json(products);
     } catch (error: any) {
-        return res.status(500).json({ error: error.message, query });
+        return res.status(500).json({ error: error.message });
     }
 });
 
@@ -115,13 +123,12 @@ router.get('/search', (req: Request, res: Response) => {
  *     summary: Get products by category
  */
 router.get('/category/:category', (req: Request, res: Response) => {
-    const { category } = req.params;
+    const category = req.params.category;
     
-    // ⚠️ Issue: SQL Injection
-    const query = `SELECT * FROM products WHERE category = '${category}'`;
+    const query = 'SELECT * FROM products WHERE category = ?';
     
     try {
-        const products = queryAll(query) as Product[];
+        const products = queryAll(query, [category]) as Product[];
         return res.json(products);
     } catch (error: any) {
         return res.status(500).json({ error: error.message });
